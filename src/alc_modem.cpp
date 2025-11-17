@@ -1,3 +1,4 @@
+#include <cerrno>
 #include <zephyr/logging/log.h>
 #include <modem/nrf_modem_lib.h>
 #include <modem/modem_info.h>
@@ -21,6 +22,7 @@ namespace alc::modem
     {
       // 0. Network Registration Status.
       case LTE_LC_EVT_NW_REG_STATUS:
+        LOG_INF("LTE LC Event - Network Registration Status Change.");
         // 0. Not Registered.
         if (regStatus == LTE_LC_NW_REG_NOT_REGISTERED) { LOG_INF("LTE_LC_EVT_REG_STATUS: Not Registered - %d", regStatus); }
         // 1. Home.
@@ -59,63 +61,63 @@ namespace alc::modem
 
       // 1. PSM Update. (Requires CONFIG_LTE_LC_PSM_MODULE).
       case LTE_LC_EVT_PSM_UPDATE:
-        LOG_INF("PSM Update.");
+        LOG_INF("LTE LC Event - PSM Update.");
         break;
 
       // 2. eDRX Update. (Requires CONFIG_LTE_LC_EDRX_MODULE).
       case LTE_LC_EVT_EDRX_UPDATE:
-        LOG_INF("eDRX Update.");
+        LOG_INF("LTE LC Event - eDRX Update.");
         break;
 
       // 3. RRC Status.
 	    case LTE_LC_EVT_RRC_UPDATE:
-		     LOG_INF("RRC Mode Update: %s", (rrcMode == LTE_LC_RRC_MODE_CONNECTED ? "Connected" : "Idle"));
+		     LOG_INF("LTE LC Event - RRC Mode Update: %s", (rrcMode == LTE_LC_RRC_MODE_CONNECTED ? "Connected" : "Idle"));
          (rrcMode == LTE_LC_RRC_MODE_CONNECTED) ? alc::ui::Ui::SetLed2(true) : alc::ui::Ui::SetLed2(false);
 		    break;
 
       // 4. Cell Update.
       case LTE_LC_EVT_CELL_UPDATE:
-        LOG_INF("Cell Update.");
+        LOG_INF("LTE LC Event - Cell Update.");
         break;
 
       // 5. Mode Update.
       case LTE_LC_EVT_LTE_MODE_UPDATE:
-        LOG_INF("LTE Mode Update.");
+        LOG_INF("LTE LC Event - LTE Mode Update.");
         break;
 
       // 6. Tau Pre-Warning. (Reuires CONFIG_LTE_LC_TAU_PRE_WARNING_MODULE).
       case LTE_LC_EVT_TAU_PRE_WARNING:
-        LOG_INF("TAU Pre-warning.");
+        LOG_INF("LTE LC Event - TAU Pre-warning.");
         break;
 
       // 7. Neighbour Cell Measurement. (Requires CONFIG_LTE_LC_NEIGHBOR_CELL_MEAS_MODULE).
       case LTE_LC_EVT_NEIGHBOR_CELL_MEAS:
-        LOG_INF("Neighbour Cell Measurment.");
+        LOG_INF("LTE LC Event - Neighbour Cell Measurment.");
         break;
 
       // 8. Modem Sleep Pre-Warning. (Requires CONFIG_LTE_LC_MODEM_SLEEP_MODULE).
       case LTE_LC_EVT_MODEM_SLEEP_EXIT_PRE_WARNING:
-        LOG_INF("Modem Sleep Exit Pre-Warning.");
+        LOG_INF("LTE LC Event - Modem Sleep Exit Pre-Warning.");
         break;
 
       // 9. Modem Sleep Exit. (Requires CONFIG_LTE_LC_MODEM_SLEEP_MODULE).
       case LTE_LC_EVT_MODEM_SLEEP_EXIT:
-        LOG_INF("Modem Sleep Exit.");
+        LOG_INF("LTE LC Event - Modem Sleep Exit.");
         break;
 
       // 10. Modem Sleep Enter. (Requires CONFIG_LTE_LC_MODEM_SLEEP_MODULE).
       case LTE_LC_EVT_MODEM_SLEEP_ENTER:
-        LOG_INF("Modem Sleep Enter.");
+        LOG_INF("LTE LC Event - Modem Sleep Enter.");
         break;
 
       // 11. Modem Event.
       case LTE_LC_EVT_MODEM_EVENT:
-        LOG_INF("Modem Event.");
+        LOG_INF("LTE LC Event - Modem Event.");
         break;
 
       // 12. Release Assistance Indication Update. (Requires CONFIG_LTE_LC_RAI_MODULE.)
       case LTE_LC_EVT_RAI_UPDATE:
-        LOG_INF("RAI Update.");
+        LOG_INF("LTE LC Event - RAI Update.");
         break;
 
       // 13. Environment Evaluation Result. v2.0.3 only.   
@@ -399,31 +401,213 @@ namespace alc::modem
     k_sem_init(&m_sem_lte_connected, count, limit); 
   }
 
-  alc_error_t Modem::Configure(void)
+  bool Modem::initModem(void)
   {
-    constexpr alc_error_t INIT_FAIL { alc_error_t::INIT_FAIL };
-    constexpr alc_error_t CONNECT_FAIL { alc_error_t::CONNECT_FAIL };
-    constexpr alc_error_t OK { alc_error_t::OK };
-
-	  LOG_INF("Initialising modem library.");
 	  int result { nrf_modem_lib_init() };
 	  if (result) {
 		  LOG_ERR("Failed to initialise the modem library, error: %d.", result);
-		  return INIT_FAIL;
+      return false;
 	  }
-	
-	  LOG_INF("Connecting to LTE network");
-	  result = lte_lc_connect_async(lteHandler);
-	  if (result) {
+	  LOG_INF("Modem library initialised.");
+    return true;
+  }
+
+  alc_error_t Modem::ConnectAsync(void)
+  {
+	  int result { lte_lc_connect_async(lteHandler) };
+	  if (result != 0 ) {
 		  LOG_ERR("Error in lte_lc_connect_async, error: %d", result);
-		  return CONNECT_FAIL;
+      if (result == -EFAULT) { return alc_error_t::AT_COMMAND_FAIL; } 
+      if (result == -EINVAL) { return alc_error_t::NO_HANDLER; } 
+      // Catch-all.
+      return alc_error_t::CONNECT_FAIL; 
 	  }
 
 	  k_sem_take(&m_sem_lte_connected, K_FOREVER);
 
-	  LOG_INF("Connected to LTE network");
+	  LOG_INF("Connected to LTE network.");
+    return alc_error_t::OK;
+  }
+
+  alc_error_t Modem::InitAndConnect(void)
+  {
+    // Initialise Modem.
+    if (!initModem()) { return alc_error_t::INIT_FAIL; }
+	
+    // Connect to LTE Network.
+    if (alc_error_t::OK != ConnectAsync()) { return alc_error_t::CONNECT_FAIL; }
+
+    // LED shows successful connection.
     alc::ui::Ui::SetLed1(true);
 
-  	return OK;
+  	return alc_error_t::OK;
+  }
+
+  alc_error_t Modem::RegisterHandler(void)
+  {
+    lte_lc_register_handler(lteHandler);  
+    return alc_error_t::OK;
+  }
+
+  alc_error_t Modem::DeregisterHandler(void)
+  {
+    lte_lc_deregister_handler(lteHandler);  
+    return alc_error_t::OK;
+  }
+
+  alc_error_t Modem::SetModemOffline(void)
+  {
+    int result { lte_lc_offline() };
+    if (0 != result) 
+    {
+      LOG_ERR("Unable to set modem offline. Error: %d.", result);
+      if (-EFAULT == result) return alc_error_t::OFFLINE_FAIL;
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+      
+    return alc_error_t::OK;
+  }
+
+  alc_error_t Modem::SetModemPowerOff(void)
+  {
+    int result { lte_lc_power_off() };
+    if (0 != result)
+    {
+      if (result == -EFAULT) { return alc_error_t::POWER_OFF_FAIL; } 
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+
+    return alc_error_t::OK;
+  }
+
+  alc_error_t Modem::SetModemNormal(void)
+  {
+    int result { lte_lc_normal() };
+    if (0 != result)
+    {
+      if (result == -EFAULT) { return alc_error_t::NORMAL_FAIL; } 
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+  
+    return alc_error_t::OK;
+  }
+
+  alc_error_t Modem::SetPsmParams(const std::string rpTau, const std::string rat)
+  {
+    // RPTAU = Requested Periodic TAU.
+    // RAT = Requested Active Timeparblock Requested periodic TAU as a null-terminated 8 character long bit field string.  
+    
+    // RPTAU:
+    // For example, value of 32400 s is represented as '00101001'.  
+    // Bits 5 to 1 represent the binary coded timer value that is multiplied by timer unit.  
+    // Bits 8 to 6 define the timer unit as follows:  
+    // \- 000: 10 minutes  
+    // \- 001: 1 hour  
+    // \- 010: 10 hours  
+    // \- 011: 2 seconds  
+    // \- 100: 30 seconds  
+    // \- 101: 1 minute  
+    // \- 110: 320 hours  
+   
+    // RAT
+    // Set to @c NULL to use modem's default value.  
+    // See 3GPP 24.008 Ch. 10.5.7.3 for data format.  
+    // For example, value of 120 s is represented as '00100010'.  
+    // Bits 5 to 1 represent the binary coded timer value that is multiplied by timer unit.  
+    // Bits 8 to 6 define the timer unit as follows:  
+    // \- 000: 2 seconds  
+    // \- 001: 1 minute  
+    // \- 010: 6 minutes  
+    // \- 111: Timer is deactivated  
+    int result { lte_lc_psm_param_set(rpTau.c_str(), rat.c_str()) };
+    if (0 != result)
+    {
+      LOG_ERR("Unable to set PSM parameters. Error: %d.", result);
+      if (result == -EINVAL) return alc_error_t::PSM_PARAM_ERROR;
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+    return alc_error_t::OK;
+  }
+
+  alc_error_t SetPsmParamsSeconds(const int rpTau, const int rat)
+  {
+    int result { lte_lc_psm_param_set_seconds(rpTau, rat) };
+    if (0 != result)
+    {
+      LOG_ERR("Unable to set PSM parameters. Error: %d.", result);
+      if (result == -EINVAL) return alc_error_t::PSM_PARAM_ERROR;
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+    return alc_error_t::OK;
+  }
+
+  alc_error_t Modem::PsmRequest(const bool flag)
+  {
+    int result { lte_lc_psm_req(flag) };
+    if (0 != result)
+    {
+      LOG_ERR("Failed to Enable / Disable PSM. Error: %d.", result);
+      if (result == -EFAULT) return alc_error_t::AT_COMMAND_FAIL;
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+    return alc_error_t::OK;
+    
+  }
+
+  std::optional<int> Modem::GetPsmRptau(void)
+  {
+    if (alc_error_t::OK == getPsmData()) { return m_psm_rptau;  }
+
+    return std::nullopt;
+  }
+
+  std::optional<int> Modem::GetPsmRat(void)
+  {
+    if (alc_error_t::OK == getPsmData()) { return m_psm_rat;  }
+  
+    return std::nullopt;
+  }
+
+  alc_error_t Modem::getPsmData(void)
+  {
+    int* rptau { nullptr };
+    int* rat { nullptr };
+    //Clear existing data.
+    m_psm_rptau = std::nullopt;
+    m_psm_rat = std::nullopt;
+
+    int result { lte_lc_psm_get(rptau, rat) };
+    if (0 != result)
+    {
+      LOG_ERR("Unable to get PSM data. Error: %d.", result);
+      if (result == -EINVAL) { return alc_error_t::PSM_PARAM_ERROR; }
+      if (result == -EFAULT) { return alc_error_t::AT_COMMAND_FAIL; }
+      if (result == -EBADMSG) { return alc_error_t::TAU_ERROR; }
+      // Catch-all.
+      return alc_error_t::FAIL;;
+    }
+    m_psm_rptau = *rptau;
+    m_psm_rat = *rat;
+    return alc_error_t::OK;
+  }
+  alc_error_t Modem::Connect(void)
+  {
+    int result { lte_lc_connect() };
+    if (0 != result)
+    {
+      if (result == -EFAULT) { return alc_error_t::AT_COMMAND_FAIL; } 
+      if (result == -ETIMEDOUT) { return alc_error_t::CONNECTION_TIMEDOUT; } 
+      if (result == -EINPROGRESS) { return alc_error_t::CONNECTION_IN_PROGRESS; } 
+      // Catch-all.
+      return alc_error_t::CONNECT_FAIL;
+    }
+
+    return alc_error_t::OK;
   }
 }

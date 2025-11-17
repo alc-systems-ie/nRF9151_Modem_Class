@@ -10,7 +10,7 @@ alc::ui::Ui ui;
 
 int main(void)
 {
-	modem.Configure();
+	modem.InitAndConnect();
 
   modem.ShowEvalAll();
 
