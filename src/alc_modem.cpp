@@ -21,6 +21,35 @@ namespace alc::modem
     {
       // 0. Network Registration Status.
       case LTE_LC_EVT_NW_REG_STATUS:
+        // 0. Not Registered.
+        if (regStatus == LTE_LC_NW_REG_NOT_REGISTERED) { LOG_INF("LTE_LC_EVT_REG_STATUS: Not Registered - %d", regStatus); }
+        // 1. Home.
+        if (regStatus == LTE_LC_NW_REG_REGISTERED_HOME) { LOG_INF("LTE_LC_EVT_REG_STATUS: Registered Home - %d", regStatus); }
+        // 2. Searching.
+        if (regStatus == LTE_LC_NW_REG_SEARCHING) { LOG_INF("LTE_LC_EVT_REG_STATUS: Searching - %d", regStatus); }
+        // 3. Denied.
+        if (regStatus == LTE_LC_NW_REG_REGISTRATION_DENIED) { LOG_INF("LTE_LC_EVT_REG_STATUS: Denied - %d", regStatus); }
+        // 4. Unknown.
+        if (regStatus == LTE_LC_NW_REG_UNKNOWN) { LOG_INF("LTE_LC_EVT_REG_STATUS: Unknown - %d", regStatus); }
+        // 5. Roaming.
+        if (regStatus == LTE_LC_NW_REG_REGISTERED_ROAMING) { LOG_INF("LTE_LC_EVT_REG_STATUS: Roaming - %d", regStatus); }
+        // 50. RX Only, Not Registered.
+        // if (regStatus == LTE_LC_NW_REG_RX_ONLY_NOT_REGISTERED) { LOG_INF("LTE_LC_EVT_REG_STATUS: RX Only, Not Registered - %d", regStatus); }
+        // 51. RX Only, Registered Home.
+        // if (regStatus == LTE_LC_NW_REG_RX_ONLY_REGISTERED_HOME) { LOG_INF("LTE_LC_EVT_REG_STATUS: RX Only, Home - %d", regStatus); }
+        // 52. RX Only, Searching.
+        // if (regStatus == LTE_LC_NW_REG_RX_ONLY_SEARCHING) { LOG_INF("LTE_LC_EVT_REG_STATUS: RX Only, Searching - %d", regStatus); }
+        // 53. RX Only, Denied.
+        // if (regStatus == LTE_LC_NW_REG_RX_ONLY_REGISTRATION_DENIED) { LOG_INF("LTE_LC_EVT_REG_STATUS: RX Only, Denied - %d", regStatus); }
+        // 54. RX Only, Unknown.
+        // if (regStatus == LTE_LC_NW_REG_RX_ONLY_UNKNOWN) { LOG_INF("LTE_LC_EVT_REG_STATUS: RX Only, Unknown- %d", regStatus); }
+        // 55. RX Only, Roaming.
+        // if (regStatus == LTE_LC_NW_REG_RX_ONLY_REGISTERED_ROAMING) { LOG_INF("LTE_LC_EVT_REG_STATUS: RX Only, Roaming - %d", regStatus); }
+        // 90. UICC Fail.
+        if (regStatus == LTE_LC_NW_REG_UICC_FAIL) { LOG_INF("LTE_LC_EVT_REG_STATUS: UICC Fail - %d", regStatus); }
+        // 91. No Suitable Cell.
+        // if (regStatus == LTE_LC_NW_REG_NO_SUITABLE_CELL) { LOG_INF("LTE_LC_EVT_REG_STATUS:  No Suitable Cell - %d", regStatus); }
+
         if ((regStatus == LTE_LC_NW_REG_REGISTERED_HOME) || (regStatus == LTE_LC_NW_REG_REGISTERED_ROAMING)) 
         { 
 		      LOG_INF("Connection - %s", (regStatus == LTE_LC_NW_REG_REGISTERED_HOME ? "Home Network" : "Roaming"));

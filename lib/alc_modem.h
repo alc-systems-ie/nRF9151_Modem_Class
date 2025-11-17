@@ -25,7 +25,36 @@ namespace alc::modem
       constexpr static int M_MNC_EIR { 3 };
       constexpr static int M_MNC_THREE { 5 };
 
+
+      lte_lc_psm_cfg m_psm_config { };
+      lte_lc_edrx_cfg m_edrx_config { };
+      lte_lc_ncell m_ncell { };
+      lte_lc_cell m_cell { };
+      lte_lc_cells_info m_cells_info { };
+      lte_lc_modem_sleep m_modem_sleep { };
+      // lte_lc_invalid_band_conf m_invalid_band_config { };
+      lte_lc_modem_evt m_modem_event { };
+      lte_lc_rai_cfg m_rai_config { };
       std::optional<lte_lc_conn_eval_params> m_conn_eval_params { };
+      lte_lc_ncellmeas_params m_ncellmeas_params { };
+      // lte_lc_env_eval_plmn m_env_eval_plmn { };
+      // lte_lc_env_eval_params m_env_eval_params { };
+      lte_lc_periodic_search_range_cfg m_periodic_search_range_config { };
+      lte_lc_periodic_search_table_cfg m_periodic_search_table_config { };
+      lte_lc_periodic_search_pattern m_periodic_search_pattern { };
+      lte_lc_periodic_search_cfg m_periodic_search_config { };
+      // lte_lc_env_eval_result m_env_eval_result { };
+      lte_lc_cfun_cb m_cfun_callback { };
+      lte_lc_evt m_event { };
+
+      
+
+
+
+
+
+
+
       bool m_conn_eval_param_flag { false }; 
 
 
