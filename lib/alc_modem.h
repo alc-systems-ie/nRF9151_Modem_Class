@@ -21,21 +21,50 @@ namespace alc::modem
     POWER_OFF_FAIL,
     NORMAL_FAIL,
     PSM_PARAM_ERROR,
-    TAU_ERROR
-
+    EDRX_PARAM_ERROR,
+    TAU_ERROR,
+    EDRX_PARAM_ERRROR,
+    PARSE_ERROR,
+    REG_STATUS_PARAM_ERROR,
+    MODE_OR_PREFERENCE_ERROR,
+    FUNC_MODE_PARAM_ERROR,
+    NCELL_PARAM_ERROR,
+    NCELL_MEAS_IN_PROGRESS,
+    ENV_EVAL_MODE_ERROR,
+    PERIODIC_SEARCH_PARAM_ERROR,
+    PERIODIC_SEARCH_BAD_RESPONSE,
+    PERIODIC_SEARCH_NO_CONFIG
   };
 
   class Modem
   {
     private:
+      inline static k_sem m_sem_lte_connected;
+
+      // MCCs.
       constexpr static int M_MCC_IRELAND { 272 };
 
+      constexpr static const char* M_IRELAND { "Ireland" };
+
+      // MNCs.
       constexpr static int M_MNC_VODAFONE { 1 };
       constexpr static int M_MNC_O2 { 2 };
       constexpr static int M_MNC_EIR { 3 };
       constexpr static int M_MNC_THREE { 5 };
 
-      lte_lc_psm_cfg m_psm_config { };
+      constexpr static const char* M_VODAFONE { "Vodafone" };
+      constexpr static const char* M_O2 { "O2" };
+      constexpr static const char* M_EIR { "Eir" };
+      constexpr static const char* M_THREE { "Three" };
+
+      // Connection Mode.
+      lte_lc_lte_mode m_lte_mode { LTE_LC_LTE_MODE_NBIOT };
+      std::optional<float> m_edrx_value { std::nullopt };
+      std::optional<float> m_edrx_ptw { std::nullopt };
+
+      // Registration.
+      inline static std::optional<lte_lc_nw_reg_status> m_reg_status;
+
       lte_lc_edrx_cfg m_edrx_config { };
       lte_lc_ncell m_ncell { };
       lte_lc_cell m_cell { };
@@ -57,29 +86,94 @@ namespace alc::modem
       lte_lc_evt m_event { };
       
       // PSM.
+      lte_lc_psm_cfg m_psm_config { };
       std::optional<int> m_psm_rptau { std::nullopt };
       std::optional<int> m_psm_rat { std::nullopt };
 
+      // Evaluation.
       bool m_conn_eval_param_flag { false }; 
+
+      // System Mode and Preferences.
+      lte_lc_system_mode m_system_mode { };
+      lte_lc_system_mode_preference m_system_mode_preference { };
 
     public:
       Modem();
 
+      // Connecton.
       alc_error_t InitAndConnect(void);
-
-      alc_error_t RegisterHandler(void);
-      alc_error_t DeregisterHandler(void);
       alc_error_t Connect(void);
       alc_error_t ConnectAsync(void);
+
+      // Handler.
+      alc_error_t RegisterHandler(void);
+      alc_error_t DeregisterHandler(void);
+
+      // Modem.
       alc_error_t SetModemOffline(void);
       alc_error_t SetModemPowerOff(void);
       alc_error_t SetModemNormal(void);
+      
+      // PSM.
       alc_error_t SetPsmParams(const std::string rpTau, const std::string rat);
       alc_error_t SetPsmParamsSeconds(const int rpTau, const int rat);
       alc_error_t PsmRequest(const bool flag);
+      alc_error_t ProprietaryPsmRequest(const bool flag);
       std::optional<int> GetPsmRptau(void);
       std::optional<int> GetPsmRat(void);
       
+      // eDrx.
+      alc_error_t SetEdrxPtw(const std::string ptw);
+      alc_error_t SetEdrxParam(const std::string param);
+      alc_error_t EdrxRequest(const bool flag);
+      alc_error_t EdrxGet(void);
+      std::optional<float> GetErdxValue(void);
+      std::optional<float> GetEdrxPtw(void);
+      
+      // Registration.
+      std::optional<lte_lc_nw_reg_status> GetRegStatus(void);
+
+      // System Mode and Preferences.
+      alc_error_t SetSystemMode(const lte_lc_system_mode systemMode, const lte_lc_system_mode_preference modePreference);
+      alc_error_t GetSystemModeAndPreference(void);
+
+      // Function Modes.
+      std::optional<lte_lc_func_mode> GetFuncMode(void);
+      bool SetFuncModePowerOff(void);
+      bool SetFuncModeNormal(void);
+      bool SetFuncModeRxOnly(void);
+      bool SetFuncModeOffline(void);
+      bool SetFuncModeOffineUiccOn(void);
+      bool SetFuncModeOfflineKeepReg(void);
+      bool SetFuncModeOfflineKeepRegUiccOn(void);
+      bool SetFuncModeDeactivateLte(void);
+      bool SetFuncModeActivateLte(void);
+      bool SetFuncModeDeactivateGnss(void);
+      bool SetFuncModeActivateGnss(void);
+      bool SetFuncModeDeactivateUicc(void);
+      bool SetFuncModeActivateUicc(void);
+
+      // LTE Mode.
+      lte_lc_lte_mode GetLteMode(void);
+
+      // Neighbour Cells.
+      alc_error_t MeasureNeighbourCells(const lte_lc_neighbor_search_type searchType, const uint8_t cellCount);
+      alc_error_t CancelMeasureNeighbourCells(void);
+
+      // Environment Evaluation. N.B. NOT YET ACTIVE.
+      alc_error_t MeasureEnviroment(void);
+
+      // Modem Events.
+      alc_error_t EnableModemEvents(void);
+      alc_error_t DisableModemEvents(void);
+
+      // Periodic Search.
+      alc_error_t SetPeriodicSearch(void);
+      alc_error_t GetPeriodicSearch(void);
+      alc_error_t ClearPeriodicSearch(void);
+      alc_error_t RequestPeriodicSearch(void);
+
+
       // Evaluation parameter results.
       void ShowEvalAll(void);
       std::optional<lte_lc_rrc_mode> GetConnEvalRrcMode(void);
@@ -100,7 +194,10 @@ namespace alc::modem
       std::optional<int> GetConnEvalMnc(void);
       std::optional<uint32_t> GetConnEvalEutranCellId(void);
 
+
+
     private:
+      alc_error_t setLteFuncMode(const lte_lc_func_mode mode);
       alc_error_t getPsmData(void);
       bool initModem(void);
       bool connectAsync(void);

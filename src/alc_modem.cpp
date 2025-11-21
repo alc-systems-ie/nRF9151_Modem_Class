@@ -10,7 +10,6 @@ LOG_MODULE_REGISTER(alc_modem, LOG_LEVEL_INF);
 
 namespace alc::modem
 {
-  static k_sem m_sem_lte_connected { };
 
   void Modem::lteHandler(const struct lte_lc_evt* const lteEvent)
   {
@@ -54,6 +53,7 @@ namespace alc::modem
 
         if ((regStatus == LTE_LC_NW_REG_REGISTERED_HOME) || (regStatus == LTE_LC_NW_REG_REGISTERED_ROAMING)) 
         { 
+          m_reg_status = regStatus;
 		      LOG_INF("Connection - %s", (regStatus == LTE_LC_NW_REG_REGISTERED_HOME ? "Home Network" : "Roaming"));
      	    k_sem_give(&m_sem_lte_connected);
         }
@@ -330,7 +330,7 @@ namespace alc::modem
 
     const char* country { };
 
-    if (m_conn_eval_params->mcc == M_MCC_IRELAND) { country = "Ireland"; }
+    if (m_conn_eval_params->mcc == M_MCC_IRELAND) { country = M_IRELAND; }
 
     LOG_INF("Eval: MCC = %d - %s", m_conn_eval_params->mcc, country);
 
@@ -342,10 +342,10 @@ namespace alc::modem
     if (!validParameters()) { return std::nullopt; }
 
     const char* netz { "Unknown" };
-    if (m_conn_eval_params->mnc == M_MNC_VODAFONE) { netz = "Vodafone"; }
-    if (m_conn_eval_params->mnc == M_MNC_O2) { netz = "O2"; }
-    if (m_conn_eval_params->mnc == M_MNC_EIR) { netz = "Eir"; }
-    if (m_conn_eval_params->mnc == M_MNC_THREE) { netz = "Three"; }
+    if (m_conn_eval_params->mnc == M_MNC_VODAFONE) { netz = M_VODAFONE; }
+    if (m_conn_eval_params->mnc == M_MNC_O2) { netz = M_O2; }
+    if (m_conn_eval_params->mnc == M_MNC_EIR) { netz = M_EIR; }
+    if (m_conn_eval_params->mnc == M_MNC_THREE) { netz = M_THREE; }
 
     LOG_INF("Eval: MNC = 0%d - %s", m_conn_eval_params->mnc, netz);
 
@@ -360,6 +360,28 @@ namespace alc::modem
 
     return m_conn_eval_params->cell_id;
   }
+
+  //  NOT YET RELEASED!
+  //
+  // alc_error_t Modem::MeasureEnviroment(void)
+  // {
+  //   // Receiver must be in RX Mode.
+  //   // Results are signalled by LTE_LC_EVT_ENV_EVAL_RESULT.
+  //   if (LTE_LC_FUNC_MODE_RX_ONLY != GetFuncMode())
+  //   {
+  //     LOG_ERR("Ensure Function Mode is RX_Only before calling MeasureEnvironment.");
+  //     return alc_error_t::ENV_EVAL_MODE_ERROR;
+  //   }
+  //   lte_lc_env_eval_params* params { nullptr };
+  //   int result { lte_lc_env_eval(params) };
+  //   if (0 != result)
+  //   {
+  //     return alc_error_t::FAIL;
+  //   }
+  //
+  //   return alc_error_t::OK;
+  // }
+  //
 
   bool Modem::validParameters(void)
   {
@@ -396,9 +418,7 @@ namespace alc::modem
   
   Modem::Modem(void)
   {
-    constexpr int count { 0 };
-    constexpr int limit { 1 }; 
-    k_sem_init(&m_sem_lte_connected, count, limit); 
+    // m_reg_status = std::nullopt;
   }
 
   bool Modem::initModem(void)
@@ -431,6 +451,10 @@ namespace alc::modem
 
   alc_error_t Modem::InitAndConnect(void)
   {
+    constexpr int init { 0 };
+    constexpr int count { 1 };
+    k_sem_init(&m_sem_lte_connected, init, count);
+
     // Initialise Modem.
     if (!initModem()) { return alc_error_t::INIT_FAIL; }
 	
@@ -546,6 +570,19 @@ namespace alc::modem
     return alc_error_t::OK;
   }
 
+  alc_error_t Modem::ProprietaryPsmRequest(const bool flag)
+  {
+    int result { lte_lc_proprietary_psm_req(flag) };
+    if (0 != result)
+    {
+      LOG_ERR("Failed to Enable / Disable PSM. Error: %d.", result);
+      if (result == -EFAULT) return alc_error_t::AT_COMMAND_FAIL;
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+    return alc_error_t::OK;
+  }
+
   alc_error_t Modem::PsmRequest(const bool flag)
   {
     int result { lte_lc_psm_req(flag) };
@@ -557,7 +594,6 @@ namespace alc::modem
       return alc_error_t::FAIL;
     }
     return alc_error_t::OK;
-    
   }
 
   std::optional<int> Modem::GetPsmRptau(void)
@@ -572,6 +608,177 @@ namespace alc::modem
     if (alc_error_t::OK == getPsmData()) { return m_psm_rat;  }
   
     return std::nullopt;
+  }
+
+  alc_error_t Modem::SetEdrxPtw(const std::string ptw)
+  {
+    // Sets the eDRX Paging Time Window.
+    // Refer to manual prior to use, since this is usually set to default.
+    int result { lte_lc_ptw_set(m_lte_mode, ptw.c_str()) };
+    if (0 != result)
+    {
+      LOG_ERR("Failed to set eDrx Paging Time Window Error: %d.", result);
+      if (result == -EINVAL) return alc_error_t::EDRX_PARAM_ERRROR;
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+    return alc_error_t::OK;
+  }
+
+  alc_error_t Modem::SetEdrxParam(const std::string param)
+  {
+    // Requires CONFIG_LTE_LC_EDRX_MODULE to be enabled.
+    int result { lte_lc_edrx_param_set(m_lte_mode, param.c_str()) };
+    if (0 != result)
+    {
+      LOG_ERR("Failed to set eDrx parameter. Error: %d.", result);
+      if (result == -EINVAL) return alc_error_t::EDRX_PARAM_ERRROR;
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+    return alc_error_t::OK;
+  }
+
+  alc_error_t Modem::EdrxRequest(const bool flag)
+  {
+    // Requires CONFIG_LTE_LC_EDRX_MODULE to be enabled.
+    int result { lte_lc_edrx_req(flag) };
+    if (0 != result)
+    {
+      LOG_ERR("Failed to errot eDrx.  Error: %d.", result);
+      if (result == -EFAULT) return alc_error_t::AT_COMMAND_FAIL;
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+    return alc_error_t::OK;
+  }
+
+  alc_error_t Modem::EdrxGet(void)
+  {
+    // Updates eDrx related data members.
+    lte_lc_edrx_cfg* edrxData { }; 
+    m_edrx_value = std::nullopt;
+    m_edrx_ptw = std::nullopt;
+    int result { lte_lc_edrx_get(edrxData) };
+
+    if (0 != result)
+    {
+      LOG_ERR("Failed to get eDrx data.  Error: %d.", result);
+      if (result == -EINVAL) return alc_error_t::EDRX_PARAM_ERROR;
+      if (result == -EFAULT) return alc_error_t::AT_COMMAND_FAIL;
+      if (result == -EBADMSG) return alc_error_t::AT_COMMAND_FAIL;
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+
+    m_lte_mode = edrxData->mode;
+    m_edrx_value = edrxData->edrx;
+    m_edrx_ptw = edrxData->ptw;
+    return alc_error_t::OK;
+  }
+
+  lte_lc_lte_mode Modem::GetLteMode(void)
+  {
+    return m_lte_mode;  
+  }
+
+  std::optional<float> Modem::GetErdxValue(void)
+  {
+    return m_edrx_value;
+  }
+
+  std::optional<float> Modem::GetEdrxPtw(void)
+  {
+    return m_edrx_ptw;
+  }
+
+  std::optional<lte_lc_nw_reg_status> Modem::GetRegStatus(void)
+  {
+    lte_lc_nw_reg_status* status { nullptr };
+
+    int result { lte_lc_nw_reg_status_get(status) };
+    if (0 != result)
+    {
+      LOG_ERR("Unable to get Registration Status. Error: %d.", result);
+      // Catch-all.
+      return std::nullopt;
+    }
+    m_reg_status = *status;
+    return m_reg_status;
+  }
+
+  alc_error_t Modem::SetSystemMode(const lte_lc_system_mode systemMode, const lte_lc_system_mode_preference modePreference)
+  {
+    int result { lte_lc_system_mode_set(systemMode, modePreference) };
+    if (0 != result)
+    {
+      LOG_ERR("Unable to set System Mode and / or preference. Error: %d.", result);
+      if (result == -EINVAL) { return alc_error_t::MODE_OR_PREFERENCE_ERROR; }
+      if (result == -EFAULT) { return alc_error_t::AT_COMMAND_FAIL; }
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+    return alc_error_t::OK;
+  }
+
+  alc_error_t Modem::GetSystemModeAndPreference(void)
+  {
+    int result { lte_lc_system_mode_get(&m_system_mode, &m_system_mode_preference) };
+    if (0 != result)
+    {
+      LOG_ERR("Unable to get System Mode and / or preference. Error: %d.", result);
+      if (result == -EINVAL) { return alc_error_t::MODE_OR_PREFERENCE_ERROR; }
+      if (result == -EFAULT) { return alc_error_t::AT_COMMAND_FAIL; }
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+
+    switch (m_system_mode)
+    {
+      case LTE_LC_SYSTEM_MODE_LTEM:
+        LOG_INF("System Mode - LTE-M.");
+      break;
+      case LTE_LC_SYSTEM_MODE_NBIOT:
+        LOG_INF("System Mode - NB-IoT.");
+      break;
+      case LTE_LC_SYSTEM_MODE_GPS:
+        LOG_INF("System Mode - GNSS.");
+      break;
+      case LTE_LC_SYSTEM_MODE_LTEM_GPS:
+        LOG_WRN("System Mode - LTE-M and GPS.");
+      break;
+      case LTE_LC_SYSTEM_MODE_NBIOT_GPS:
+        LOG_INF("System Mode - NB-IoT and GPS.");
+      break;
+      case LTE_LC_SYSTEM_MODE_LTEM_NBIOT:
+        LOG_INF("System Mode - LTE-M and NB-IoT.");
+      break;
+      case LTE_LC_SYSTEM_MODE_LTEM_NBIOT_GPS:
+        LOG_INF("System Mode - LTE-M, NB-IoT and GPS.");
+      break;
+    }
+    
+    switch (m_system_mode_preference)
+    {
+      case LTE_LC_SYSTEM_MODE_PREFER_AUTO:
+        LOG_INF("System Mode Preference - Auto.");
+      break;
+      case LTE_LC_SYSTEM_MODE_PREFER_LTEM:
+        LOG_INF("System Mode Preference - LTE-M.");
+      break;
+      case LTE_LC_SYSTEM_MODE_PREFER_NBIOT:
+        LOG_INF("System Mode Preference - NB-IoT.");
+      break;
+      case LTE_LC_SYSTEM_MODE_PREFER_LTEM_PLMN_PRIO:
+        LOG_WRN("System Mode Preference - LTE-M but PLMN has priority.");
+      break;
+      case LTE_LC_SYSTEM_MODE_PREFER_NBIOT_PLMN_PRIO:
+        LOG_INF("System Mode Preference - NB-IoT but PLMN has priority.");
+      break;
+  
+    }
+
+    return alc_error_t::OK;
   }
 
   alc_error_t Modem::getPsmData(void)
@@ -590,12 +797,306 @@ namespace alc::modem
       if (result == -EFAULT) { return alc_error_t::AT_COMMAND_FAIL; }
       if (result == -EBADMSG) { return alc_error_t::TAU_ERROR; }
       // Catch-all.
-      return alc_error_t::FAIL;;
+      return alc_error_t::FAIL;
     }
     m_psm_rptau = *rptau;
     m_psm_rat = *rat;
     return alc_error_t::OK;
   }
+
+  bool Modem::SetFuncModePowerOff(void)
+  {
+    if (alc_error_t::OK != setLteFuncMode(LTE_LC_FUNC_MODE_POWER_OFF)) { return false; }
+    
+    LOG_INF("Function Mode - Power Off.");
+    return true;  
+  }
+
+  bool Modem::SetFuncModeNormal(void)
+  {
+    if (alc_error_t::OK != setLteFuncMode(LTE_LC_FUNC_MODE_NORMAL)) { return false; }
+  
+    LOG_INF("Function Mode - Normal.");
+    return true;  
+  }
+
+  bool Modem::SetFuncModeRxOnly(void)
+  {
+    if (alc_error_t::OK != setLteFuncMode(LTE_LC_FUNC_MODE_RX_ONLY)) { return false; }
+  
+    LOG_INF("Function Mode - RX Only.");
+    return true;  
+  }
+
+  bool Modem::SetFuncModeOffline(void)
+  {
+    if (alc_error_t::OK != setLteFuncMode(LTE_LC_FUNC_MODE_OFFLINE)) { return false; }
+  
+    LOG_INF("Function Mode - Offline.");
+    return true;  
+  }
+
+  bool Modem::SetFuncModeOffineUiccOn(void)
+  {
+    if (alc_error_t::OK != setLteFuncMode(LTE_LC_FUNC_MODE_OFFLINE_UICC_ON)) { return false; }
+  
+    LOG_INF("Function Mode - Offline, UICC On.");
+    return true;  
+  }
+
+  // bool Modem::SetFuncModeOfflineKeepReg(void)
+  // {
+  //   if (alc_error_t::OK != setLteFuncMode(LTE_LC_FUNC_MODE_OFFLINE_KEEP_REG)) { return false; }
+  // 
+  //   LOG_INF("Function Mode - Offline Keep Reg.");
+  //   return true;  
+  // }
+
+  // bool Modem::SetFuncModeOfflineKeepRegUiccOn(void)
+  // {
+  //   if (alc_error_t::OK != setLteFuncMode(LTE_LC_FUNC_MODE_OFFLINE_KEEP_REG_UICC_ON)) { return false; }
+  // 
+  //   LOG_INF("Function Mode - Offline Keep Reg and UICC on.");
+  //   return true;  
+  // }
+
+  bool Modem::SetFuncModeDeactivateLte(void)
+  {
+    if (alc_error_t::OK != setLteFuncMode(LTE_LC_FUNC_MODE_DEACTIVATE_LTE)) { return false; }
+  
+    LOG_INF("Function Mode - LTE Deactivated.");
+    return true;  
+  }
+
+  bool Modem::SetFuncModeActivateLte(void)
+  {
+    if (alc_error_t::OK != setLteFuncMode(LTE_LC_FUNC_MODE_ACTIVATE_LTE)) { return false; }
+  
+    LOG_INF("Function Mode - LTE Active.");
+    return true;  
+  }
+
+  bool Modem::SetFuncModeDeactivateGnss(void)
+  {
+    if (alc_error_t::OK != setLteFuncMode(LTE_LC_FUNC_MODE_DEACTIVATE_GNSS)) { return false; }
+  
+    LOG_INF("Function Mode - GNSS Deactivated.");
+    return true;  
+  }
+
+  bool Modem::SetFuncModeActivateGnss(void)
+  {
+    if (alc_error_t::OK != setLteFuncMode(LTE_LC_FUNC_MODE_ACTIVATE_GNSS)) { return false; }
+  
+    LOG_INF("Function Mode - GNSS Active.");
+    return true;  
+  }
+
+  bool Modem::SetFuncModeDeactivateUicc(void)
+  {
+    if (alc_error_t::OK != setLteFuncMode(LTE_LC_FUNC_MODE_DEACTIVATE_UICC)) { return false; }
+  
+    LOG_INF("Function Mode - UICC Deactivated.");
+    return true;  
+  }
+
+  bool Modem::SetFuncModeActivateUicc(void)
+  {
+    if (alc_error_t::OK != setLteFuncMode(LTE_LC_FUNC_MODE_ACTIVATE_UICC)) { return false; }
+  
+    LOG_INF("Function Mode - UICC Active.");
+    return true;  
+  }
+
+  alc_error_t Modem::setLteFuncMode(const lte_lc_func_mode mode)
+  {
+    int result { lte_lc_func_mode_set(mode) };
+    if (0 != result)
+    {
+      LOG_ERR("Unable to set Modem Function: %d. Error: %d.", mode, result);
+      if (result == -EINVAL) { return alc_error_t::FUNC_MODE_PARAM_ERROR; }
+      if (result == -EFAULT) { return alc_error_t::AT_COMMAND_FAIL; }
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+    return alc_error_t::OK;
+  }
+
+  std::optional<lte_lc_func_mode> Modem::GetFuncMode(void)
+  {
+    lte_lc_func_mode* mode { nullptr };
+    int result { lte_lc_func_mode_get(mode) };
+    if (0 != result)
+    {
+      LOG_ERR("Unable to get Modem Function. Error: %d.", result);
+      return std::nullopt;
+    }
+    switch (*mode)
+    {
+      case LTE_LC_FUNC_MODE_POWER_OFF:
+        LOG_INF("Function Mode - Power Off.");
+        break;
+      case LTE_LC_FUNC_MODE_NORMAL:
+        LOG_INF("Function Mode - Normal.");
+        break;
+      case LTE_LC_FUNC_MODE_RX_ONLY:
+        LOG_INF("Function Mode - RX Only.");
+        break;
+      case LTE_LC_FUNC_MODE_OFFLINE:
+        LOG_INF("Function Mode - Offline.");
+        break;
+      case LTE_LC_FUNC_MODE_DEACTIVATE_LTE:
+        LOG_INF("Function Mode - LTE Deactivated.");
+        break;
+      case LTE_LC_FUNC_MODE_ACTIVATE_LTE:
+        LOG_INF("Function Mode - LTE Active.");
+        break;
+      case LTE_LC_FUNC_MODE_DEACTIVATE_GNSS:
+        LOG_INF("Function Mode - GNSS Deactiavted.");
+        break;
+      case LTE_LC_FUNC_MODE_ACTIVATE_GNSS:
+        LOG_INF("Function Mode - GNSS Active.");
+        break;
+      case LTE_LC_FUNC_MODE_DEACTIVATE_UICC:
+        LOG_INF("Function Mode - UICC Deactivated.");
+        break;
+      case LTE_LC_FUNC_MODE_ACTIVATE_UICC:
+        LOG_INF("Function Mode - UICC Active.");
+        break;
+      case LTE_LC_FUNC_MODE_OFFLINE_UICC_ON:
+        LOG_INF("Function Mode - OFFLINE, UICC On.");
+        break;
+      default:
+        LOG_WRN("Function Mode - NOT KNOWN.");
+        break;
+    }
+    return *mode;
+  }
+
+  alc_error_t Modem::MeasureNeighbourCells(const lte_lc_neighbor_search_type searchType, const uint8_t cellCount)
+  {
+    // Requires CONFIG_LTE_LC_NEIGHBOR_CELL_MEAS_MODULE.
+    // Raises Event LTE_LC_EVT_NEIGHBOR_CELL_MEAS when complete.
+
+    // Cell count range 2 - 15.
+    if ((cellCount < 2) || (cellCount > 15)) { return alc_error_t::NCELL_PARAM_ERROR ;}
+
+    lte_lc_ncellmeas_params* params { nullptr };
+    params->search_type = searchType;
+    params->gci_count = cellCount;
+
+    int result { lte_lc_neighbor_cell_measurement(params) };
+    if (0 != result)
+    {
+      if (result == -EFAULT) { return alc_error_t::AT_COMMAND_FAIL; } 
+      if (result == -EINVAL) { return alc_error_t::NCELL_PARAM_ERROR; } 
+      if (result == -EINPROGRESS) { return alc_error_t::NCELL_MEAS_IN_PROGRESS; } 
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+    return alc_error_t::OK;
+  }
+
+  alc_error_t Modem::CancelMeasureNeighbourCells(void)
+  {
+    int result { lte_lc_neighbor_cell_measurement_cancel() };
+    if (0 != result)
+    {
+      if (result == -EFAULT) { return alc_error_t::AT_COMMAND_FAIL; } 
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+    return alc_error_t::OK;
+  }
+
+  alc_error_t Modem::EnableModemEvents(void)
+  {
+    int result { lte_lc_modem_events_enable() }; 
+    if (0 != result)
+    {
+      LOG_ERR("Failed to enable Modem Events. Error: %d", result);
+      if (result == -EFAULT) { return alc_error_t::AT_COMMAND_FAIL; } 
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+    LOG_INF("Modem Events enabled.");
+    return alc_error_t::OK;  
+  }
+
+  alc_error_t Modem::DisableModemEvents(void)
+  {
+    int result { lte_lc_modem_events_disable() }; 
+    if (0 != result)
+    {
+      LOG_ERR("Failed to disable Modem Events. Error: %d", result);
+      if (result == -EFAULT) { return alc_error_t::AT_COMMAND_FAIL; } 
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+    LOG_INF("Modem Events disabled.");
+    return alc_error_t::OK;  
+  }
+
+  alc_error_t Modem::SetPeriodicSearch(void)
+  {
+    const lte_lc_periodic_search_cfg* config;
+    int result { lte_lc_periodic_search_set(config)};
+    if (0 != result)
+    {
+      LOG_ERR("Failed to configure Periodic Search. Error: %d.", result);
+      if (result == -EFAULT) { return alc_error_t::AT_COMMAND_FAIL; } 
+      if (result == -EINVAL) { return alc_error_t::PERIODIC_SEARCH_PARAM_ERROR; } 
+      if (result == -EBADMSG) { return alc_error_t::PERIODIC_SEARCH_BAD_RESPONSE; } 
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+    return alc_error_t::OK;  
+  }
+
+  alc_error_t Modem::GetPeriodicSearch(void)
+  {
+    lte_lc_periodic_search_cfg* config;
+    int result { lte_lc_periodic_search_get(config)};
+    if (0 != result)
+    {
+      LOG_ERR("Failed to configure Periodic Search. Error: %d.", result);
+      if (result == -EFAULT) { return alc_error_t::AT_COMMAND_FAIL; } 
+      if (result == -ENOENT) { return alc_error_t::PERIODIC_SEARCH_NO_CONFIG; } 
+      if (result == -EINVAL) { return alc_error_t::PERIODIC_SEARCH_PARAM_ERROR; } 
+      if (result == -EBADMSG) { return alc_error_t::PERIODIC_SEARCH_BAD_RESPONSE; } 
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+    return alc_error_t::OK;  
+  }
+
+  alc_error_t Modem::ClearPeriodicSearch(void)
+  {
+    int result { lte_lc_periodic_search_clear()};
+    if (0 != result)
+    {
+      LOG_ERR("Failed to clear Periodic Search. Error: %d.", result);
+      if (result == -EFAULT) { return alc_error_t::AT_COMMAND_FAIL; } 
+      if (result == -EBADMSG) { return alc_error_t::PERIODIC_SEARCH_BAD_RESPONSE; } 
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+    return alc_error_t::OK;  
+  }
+
+  alc_error_t Modem::RequestPeriodicSearch(void)
+  {
+    int result { lte_lc_periodic_search_request()};
+    if (0 != result)
+    {
+      LOG_ERR("Failed to request Periodic Search. Error: %d.", result);
+      if (result == -EFAULT) { return alc_error_t::AT_COMMAND_FAIL; } 
+      // Catch-all.
+      return alc_error_t::FAIL;
+    }
+    return alc_error_t::OK;  
+  }
+
   alc_error_t Modem::Connect(void)
   {
     int result { lte_lc_connect() };
